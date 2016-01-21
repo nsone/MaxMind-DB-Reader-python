@@ -102,7 +102,9 @@ static int Reader_init(PyObject *self, PyObject *args, PyObject *kwds)
     return 0;
 }
 
-static PyObject *Reader_get(PyObject *self, PyObject *args)
+/* Returns a parsed database record (a la `from_entry_data_list()`).  Returns NULL on 
+ * Python exceptions or (Python) None if a record is not found. */
+static PyObject *do_lookup(PyObject *self, PyObject *args, uint16_t *netmask)
 {
     char *ip_address = NULL;
 
@@ -161,7 +163,35 @@ static PyObject *Reader_get(PyObject *self, PyObject *args)
     MMDB_entry_data_list_s *original_entry_data_list = entry_data_list;
     PyObject *py_obj = from_entry_data_list(&entry_data_list);
     MMDB_free_entry_data_list(original_entry_data_list);
+
+    *netmask = result.netmask;
     return py_obj;
+}
+
+static PyObject *Reader_get(PyObject *self, PyObject *args)
+{
+    // We'll ignore this value but we still need to pass it in.
+    uint16_t netmask = 0;
+    PyObject *result = do_lookup(self, args, &netmask);
+    return result;
+}
+
+/* Returns a Python tuple as (record, netmask).  If a record for the given 
+ * address does not exist then a tuple of (None, 0). */
+static PyObject *Reader_get_with_netmask(PyObject *self, PyObject *args)
+{
+    uint16_t netmask = 0;
+    PyObject *result = do_lookup(self, args, &netmask);
+
+    if (result == NULL) {
+        // A Python exception was raised.
+        return result;
+    }
+
+    PyObject *tuple = PyTuple_New(2);
+    PyTuple_SetItem(tuple, 0, result);  // steals `result` ref, even if Py_None
+    PyTuple_SetItem(tuple, 1, PyInt_FromLong(netmask));  // same.
+    return tuple;
 }
 
 static PyObject *Reader_metadata(PyObject *self, PyObject *UNUSED(args))
@@ -452,6 +482,8 @@ static PyObject *from_uint128(const MMDB_entry_data_list_s *entry_data_list)
 static PyMethodDef Reader_methods[] = {
     { "get",      Reader_get,      METH_VARARGS,
       "Get record for IP address" },
+    { "get_with_netmask", Reader_get_with_netmask, METH_VARARGS,
+      "Get record and netmask for IP address" },
     { "metadata", Reader_metadata, METH_NOARGS,
       "Returns metadata object for database" },
     { "close",    Reader_close,    METH_NOARGS, "Closes database"},

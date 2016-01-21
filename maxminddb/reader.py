@@ -94,15 +94,29 @@ class Reader(object):
         Arguments:
         ip_address -- an IP address in the standard string notation
         """
+        obj, _ = self.get_with_netmask(ip_address)
+        return obj
+
+    def get_with_netmask(self, ip_address):
+        """Return a tuple of (record, netmask) for the ip_address in the
+        MaxMind DB.
+
+
+        Arguments:
+        ip_address -- an IP address in the standard string notation
+        """
         address = ipaddress.ip_address(ip_address)
 
         if address.version == 6 and self._metadata.ip_version == 4:
             raise ValueError('Error looking up {0}. You attempted to look up '
                              'an IPv6 address in an IPv4-only database.'.format(
                                  ip_address))
-        pointer = self._find_address_in_tree(address)
-
-        return self._resolve_data_pointer(pointer) if pointer else None
+        pointer, netmask = self._find_address_in_tree(address)
+        if pointer:
+            data = self._resolve_data_pointer(pointer)
+            return data, netmask
+        else:
+            return None, 0
 
     def _find_address_in_tree(self, ip_address):
         packed = ip_address.packed
@@ -115,11 +129,17 @@ class Reader(object):
                 break
             bit = 1 & (int_from_byte(packed[i >> 3]) >> 7 - (i % 8))
             node = self._read_node(node, bit)
+
+        # Return a tuple of (node, netmask).  Netmask is the value of i (which is
+        # the depth in the tree) potentially offset by 96 if ip_address is
+        # v4 AND this is an IPv6 database.  See the "IPv4 addresses in an IPv6 tree"
+        # in http://maxmind.github.io/MaxMind-DB/
+        netmask = i + (96 if self._metadata.ip_version == 6 and bit_count < 128 else 0)
         if node == self._metadata.node_count:
             # Record is empty
-            return 0
+            return 0, netmask
         elif node > self._metadata.node_count:
-            return node
+            return node, netmask
 
         raise InvalidDatabaseError('Invalid node in search tree')
 
