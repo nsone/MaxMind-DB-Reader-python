@@ -123,7 +123,8 @@ def run_setup(with_cext):
 
     setup(
         name='maxminddb',
-        version=VERSION,
+        # Temporary version change until this patch lands: version=VERSION
+        version='1.2.0.ns1-1',
         author='Gregory Oschwald',
         author_email='goschwald@maxmind.com',
         description='Reader for the MaxMind DB format',
